@@ -24,16 +24,44 @@ jobs:
           gradle-version: "8.9"
 
       - name: Loyihani zipdan ochish
-        run: unzip -o fokus-taymer-2.0.zip -d project
+        run: unzip -o fokus-taymer-2.1.zip -d project
+
+      - name: Imzo kalitini tayyorlash
+        env:
+          KS_B64: ${{ secrets.FOKUS_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/fokus.jks"
+            echo "FOKUS_KEYSTORE_PATH=$RUNNER_TEMP/fokus.jks" >> "$GITHUB_ENV"
+            echo "SIGNED=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::FOKUS_KEYSTORE_BASE64 sir topilmadi. APK vaqtinchalik debug kalit bilan imzolanadi (yangilashda 'o'rnatilmadi' xatosi chiqishi mumkin)."
+          fi
 
       - name: APK yig'ish
         working-directory: project
-        run: gradle assembleDebug --no-daemon
+        env:
+          FOKUS_KEYSTORE_PASSWORD: ${{ secrets.FOKUS_KEYSTORE_PASSWORD }}
+          FOKUS_KEY_ALIAS: ${{ secrets.FOKUS_KEY_ALIAS }}
+          FOKUS_KEY_PASSWORD: ${{ secrets.FOKUS_KEY_PASSWORD }}
+        run: |
+          if [ "$SIGNED" = "1" ]; then
+            gradle assembleRelease --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
+
+      - name: Imzoni tekshirish
+        run: |
+          APK=$(ls project/app/build/outputs/apk/*/*.apk | head -1)
+          AS=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "APK: $APK"
+          "$AS" verify --verbose --print-certs "$APK"
 
       - uses: actions/upload-artifact@v4
         with:
           name: fokus-taymer-apk
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          path: project/app/build/outputs/apk/*/*.apk
 
       - name: Release sifatida chiqarish
         continue-on-error: true
@@ -41,5 +69,4 @@ jobs:
         with:
           tag_name: v${{ github.run_number }}
           name: Fokus Taymer v${{ github.run_number }}
-          files: project/app/build/outputs/apk/debug/app-debug.apk
-
+          files: project/app/build/outputs/apk/*/*.apk
